@@ -20,6 +20,31 @@ export function formatIndonesianDate(dateStr?: string): string {
   });
 }
 
+function savePdfDocument(doc: jsPDF, filename: string): void {
+  const safeFilename = filename.replace(/[<>:"/\\|?*]+/g, '_');
+  try {
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = safeFilename;
+    link.rel = 'noopener';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }, 15000);
+  } catch {
+    doc.save(safeFilename);
+  }
+}
+
 /**
  * 1. Download Lembar Hasil Tes Siswa (Tanda Tangan Guru & Orang Tua/Wali)
  */
@@ -232,8 +257,11 @@ export function downloadStudentResultPDF(result: ExamResult): void {
   doc.setFontSize(8.5);
   doc.text(`NIP. ${CONFIG.NIP_GURU}`, colRight, lineY + 4);
 
-  const safeName = (result.nama || 'siswa').replace(/[^a-zA-Z0-9]/g, '_');
-  doc.save(`Hasil_Tes_${CONFIG.MATA_PELAJARAN}_${safeName}_Absen_${result.noAbsen}.pdf`);
+  const safeName = String(result.nama || 'siswa').replace(/[^a-zA-Z0-9]/g, '_');
+  savePdfDocument(
+    doc,
+    `Hasil_Tes_${CONFIG.MATA_PELAJARAN}_${safeName}_Absen_${String(result.noAbsen || '-')}.pdf`
+  );
 }
 
 /**
@@ -379,7 +407,8 @@ export function downloadExamQuestionsPDF(questions: Question[]): void {
     }
   });
 
-  doc.save(
+  savePdfDocument(
+    doc,
     `Naskah_Soal_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}_${CONFIG.SEKOLAH.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
   );
 }
@@ -401,12 +430,17 @@ export function downloadResultsRecapPDF(results: ExamResult[]): void {
   const contentWidth = pageWidth - marginLeft - marginRight;
 
   const total = results.length;
-  const lulus = results.filter((r) => r.status === 'Lulus' || r.nilai >= CONFIG.KKTP).length;
+  const lulus = results.filter(
+    (r) => r.status === 'Lulus' || (Number(r.nilai) || 0) >= CONFIG.KKTP
+  ).length;
   const belumLulus = total - lulus;
   const persenLulus = total > 0 ? Math.round((lulus / total) * 100) : 0;
-  const rataRata = total > 0 ? (results.reduce((acc, r) => acc + (r.nilai || 0), 0) / total).toFixed(1) : '0';
-  const nilaiTertinggi = total > 0 ? Math.max(...results.map((r) => r.nilai || 0)) : 0;
-  const nilaiTerendah = total > 0 ? Math.min(...results.map((r) => r.nilai || 0)) : 0;
+  const rataRata =
+    total > 0
+      ? (results.reduce((acc, r) => acc + (Number(r.nilai) || 0), 0) / total).toFixed(1)
+      : '0';
+  const nilaiTertinggi = total > 0 ? Math.max(...results.map((r) => Number(r.nilai) || 0)) : 0;
+  const nilaiTerendah = total > 0 ? Math.min(...results.map((r) => Number(r.nilai) || 0)) : 0;
 
   let y = 14;
 
@@ -531,17 +565,18 @@ export function downloadResultsRecapPDF(results: ExamResult[]): void {
       doc.rect(marginLeft, y, contentWidth, 6.5, 'S');
 
       let curX = marginLeft;
-      const isLulus = r.status === 'Lulus' || r.nilai >= CONFIG.KKTP;
+      const numericNilai = Number(r.nilai) || 0;
+      const isLulus = r.status === 'Lulus' || numericNilai >= CONFIG.KKTP;
 
       cols.forEach((col) => {
         let val = '';
         if (col.key === 'no') val = String(idx + 1);
-        else if (col.key === 'noAbsen') val = String(r.noAbsen || '-');
-        else if (col.key === 'nama') val = r.nama || '-';
-        else if (col.key === 'kelas') val = r.kelas || CONFIG.KELAS;
-        else if (col.key === 'benar') val = String(r.benar ?? 0);
-        else if (col.key === 'salah') val = String(r.salah ?? 0);
-        else if (col.key === 'nilai') val = String(r.nilai ?? 0);
+        else if (col.key === 'noAbsen') val = String(r.noAbsen ?? '-');
+        else if (col.key === 'nama') val = String(r.nama ?? '-');
+        else if (col.key === 'kelas') val = String(r.kelas ?? CONFIG.KELAS);
+        else if (col.key === 'benar') val = String(Number(r.benar) || 0);
+        else if (col.key === 'salah') val = String(Number(r.salah) || 0);
+        else if (col.key === 'nilai') val = String(numericNilai);
         else if (col.key === 'status') {
           if (r.submissionReason === 'violation_limit') {
             val = 'Auto-Submit';
@@ -551,8 +586,8 @@ export function downloadResultsRecapPDF(results: ExamResult[]): void {
             val = isLulus ? 'Tuntas' : 'Remedial';
           }
         }
-        else if (col.key === 'durasi') val = r.durasiPengerjaan || '-';
-        else if (col.key === 'timestamp') val = (r.timestamp || '-').substring(0, 12);
+        else if (col.key === 'durasi') val = String(r.durasiPengerjaan || '-');
+        else if (col.key === 'timestamp') val = String(r.timestamp || '-').substring(0, 12);
 
         doc.setFont('helvetica', col.key === 'nilai' ? 'bold' : 'normal');
         doc.setFontSize(7.6);
@@ -640,7 +675,7 @@ export function downloadResultsRecapPDF(results: ExamResult[]): void {
     });
   }
 
-  doc.save(`Rekap_Nilai_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
+  savePdfDocument(doc, `Rekap_Nilai_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
 }
 
 /**
@@ -887,7 +922,7 @@ export function downloadKisiKisiPDF(questions: Question[]): void {
     });
   }
 
-  doc.save(`Kisi_Kisi_Soal_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
+  savePdfDocument(doc, `Kisi_Kisi_Soal_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
 }
 
 /**
@@ -995,91 +1030,105 @@ export function downloadAnalisisButirPDF(results: ExamResult[], questions: Quest
   drawTableHeader(y);
   y += 7;
 
-  results.forEach((r, sIdx) => {
-    if (y + 6 > pageHeight - 45) {
-      doc.addPage();
-      y = 14;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Lanjutan Matriks Respon Butir Soal Siswa:', marginLeft, y - 2);
-      drawTableHeader(y);
-      y += 7;
-    }
-
-    const key = `${r.nama}_${r.noAbsen}_${r.timestamp}`;
-    const studentResponses = allResponses.get(key) || {};
-    const isPass = r.status === 'Lulus' || r.nilai >= CONFIG.KKTP;
-
-    const isEven = sIdx % 2 === 0;
-    doc.setFillColor(isEven ? 255 : 248, isEven ? 255 : 250, isEven ? 255 : 252);
-    doc.rect(marginLeft, y, contentWidth, 5.8, 'F');
+  if (results.length === 0) {
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginLeft, y, contentWidth, 8, 'F');
     doc.setDrawColor(226, 232, 240);
-    doc.rect(marginLeft, y, contentWidth, 5.8, 'S');
-
-    let curX = marginLeft;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(30, 41, 59);
-
-    doc.text(String(sIdx + 1), curX + colNoW / 2, y + 4.1, { align: 'center' });
-    curX += colNoW;
-
-    doc.text(String(r.noAbsen || '-'), curX + colAbsenW / 2, y + 4.1, { align: 'center' });
-    curX += colAbsenW;
-
-    const truncatedNama = doc.splitTextToSize(r.nama || 'Siswa', colNamaW - 2.5)[0] || r.nama;
-    doc.text(truncatedNama, curX + 1.5, y + 4.1);
-    curX += colNamaW;
-
-    let earnedScore = 0;
-    questions.forEach((q) => {
-      const resp = studentResponses[q.id];
-      const isBenar = resp && resp.status === 'benar';
-      const isSebagian = resp && resp.status === 'sebagian';
-      if (resp) earnedScore += resp.score;
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(5.8);
-      if (isBenar) {
-        doc.setFillColor(220, 252, 231);
-        doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
-        doc.setTextColor(22, 101, 52);
-        doc.text(String(resp.score), curX + qColW / 2, y + 4, { align: 'center' });
-      } else if (isSebagian) {
-        doc.setFillColor(254, 243, 199);
-        doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
-        doc.setTextColor(180, 83, 9);
-        doc.text(String(resp.score), curX + qColW / 2, y + 4, { align: 'center' });
-      } else {
-        doc.setFillColor(254, 226, 226);
-        doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
-        doc.setTextColor(185, 28, 28);
-        doc.text('0', curX + qColW / 2, y + 4, { align: 'center' });
+    doc.rect(marginLeft, y, contentWidth, 8, 'S');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Belum ada data respon siswa yang tersimpan.', pageWidth / 2, y + 5.2, { align: 'center' });
+    y += 8;
+  } else {
+    results.forEach((r, sIdx) => {
+      if (y + 6 > pageHeight - 45) {
+        doc.addPage();
+        y = 14;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(71, 85, 105);
+        doc.text('Lanjutan Matriks Respon Butir Soal Siswa:', marginLeft, y - 2);
+        drawTableHeader(y);
+        y += 7;
       }
 
-      curX += qColW;
+      const key = `${r.nama}_${r.noAbsen}_${r.timestamp}`;
+      const studentResponses = allResponses.get(key) || {};
+      const numericNilai = Number(r.nilai) || 0;
+      const isPass = r.status === 'Lulus' || numericNilai >= CONFIG.KKTP;
+
+      const isEven = sIdx % 2 === 0;
+      doc.setFillColor(isEven ? 255 : 248, isEven ? 255 : 250, isEven ? 255 : 252);
+      doc.rect(marginLeft, y, contentWidth, 5.8, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(marginLeft, y, contentWidth, 5.8, 'S');
+
+      let curX = marginLeft;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(30, 41, 59);
+
+      doc.text(String(sIdx + 1), curX + colNoW / 2, y + 4.1, { align: 'center' });
+      curX += colNoW;
+
+      doc.text(String(r.noAbsen ?? '-'), curX + colAbsenW / 2, y + 4.1, { align: 'center' });
+      curX += colAbsenW;
+
+      const safeNama = String(r.nama || 'Siswa');
+      const truncatedNama = doc.splitTextToSize(safeNama, colNamaW - 2.5)[0] || safeNama;
+      doc.text(truncatedNama, curX + 1.5, y + 4.1);
+      curX += colNamaW;
+
+      let earnedScore = 0;
+      questions.forEach((q) => {
+        const resp = studentResponses[q.id];
+        const isBenar = resp && resp.status === 'benar';
+        const isSebagian = resp && resp.status === 'sebagian';
+        if (resp) earnedScore += resp.score;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.8);
+        if (isBenar) {
+          doc.setFillColor(220, 252, 231);
+          doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
+          doc.setTextColor(22, 101, 52);
+          doc.text(String(resp.score), curX + qColW / 2, y + 4, { align: 'center' });
+        } else if (isSebagian) {
+          doc.setFillColor(254, 243, 199);
+          doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
+          doc.setTextColor(180, 83, 9);
+          doc.text(String(resp.score), curX + qColW / 2, y + 4, { align: 'center' });
+        } else {
+          doc.setFillColor(254, 226, 226);
+          doc.rect(curX + 0.2, y + 0.5, qColW - 0.4, 4.8, 'F');
+          doc.setTextColor(185, 28, 28);
+          doc.text('0', curX + qColW / 2, y + 4, { align: 'center' });
+        }
+
+        curX += qColW;
+      });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(String(r.totalScore ?? earnedScore), curX + colSkorW / 2, y + 4.1, { align: 'center' });
+      curX += colSkorW;
+
+      doc.setTextColor(isPass ? 22 : 185, isPass ? 101 : 28, isPass ? 52 : 28);
+      doc.text(String(numericNilai), curX + colNilaiW / 2, y + 4.1, { align: 'center' });
+      curX += colNilaiW;
+
+      doc.text(isPass ? 'Tuntas' : 'Remedial', curX + colStatusW / 2, y + 4.1, { align: 'center' });
+      curX += colStatusW;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text(String(r.durasiPengerjaan || '-'), curX + colDurasiW / 2, y + 4.1, { align: 'center' });
+
+      y += 5.8;
     });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(30, 41, 59);
-    doc.text(String(r.totalScore ?? earnedScore), curX + colSkorW / 2, y + 4.1, { align: 'center' });
-    curX += colSkorW;
-
-    doc.setTextColor(isPass ? 22 : 185, isPass ? 101 : 28, isPass ? 52 : 28);
-    doc.text(String(r.nilai ?? 0), curX + colNilaiW / 2, y + 4.1, { align: 'center' });
-    curX += colNilaiW;
-
-    doc.text(isPass ? 'Tuntas' : 'Remedial', curX + colStatusW / 2, y + 4.1, { align: 'center' });
-    curX += colStatusW;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text(r.durasiPengerjaan || '-', curX + colDurasiW / 2, y + 4.1, { align: 'center' });
-
-    y += 5.8;
-  });
+  }
 
   // --- BARIS STATISTIK BUTIR SOAL DI BAWAH ---
   const statsRows = [
@@ -1204,5 +1253,5 @@ export function downloadAnalisisButirPDF(results: ExamResult[], questions: Quest
     });
   }
 
-  doc.save(`Analisis_Butir_Soal_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
+  savePdfDocument(doc, `Analisis_Butir_Soal_${CONFIG.MATA_PELAJARAN}_Kelas_${CONFIG.KELAS}.pdf`);
 }

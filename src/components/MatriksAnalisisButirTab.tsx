@@ -162,9 +162,10 @@ export const MatriksAnalisisButirTab: React.FC<MatriksAnalisisButirTabProps> = (
 
             {/* Tombol Cetak PDF */}
             <button
+              type="button"
               id="btn-download-analisis-pdf"
               onClick={handleDownloadPDF}
-              disabled={results.length === 0 || isExportingPDF}
+              disabled={isExportingPDF}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-slate-900 hover:bg-slate-100 font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
               title="Unduh Laporan Analisis Butir Soal Berkop Resmi (PDF)"
             >
